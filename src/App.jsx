@@ -20,8 +20,9 @@ const STATUSES = [
 ];
 const DOOR_TYPES    = ["예림", "한솔", "LX"];
 const COLOR_PRESETS = ["매트화이트","매트밀크화이트","매트캐시미어","매트포그그레이","글로시화이트","글로시밀크화이트","직접입력"];
-const EMPTY_ITEM    = { color: "매트화이트", qty: "", unitPrice: "" };
-const EMPTY_FORM    = { company:"", doorType:"예림", items:[{...EMPTY_ITEM}], status:"received", dueDate:"", memo:"" };
+const EMPTY_ITEM      = { color: "매트화이트", qty: "", unitPrice: "" };
+const DELIVERY_TYPES  = ["직접출고", "용차출고", "배송"];
+const EMPTY_FORM      = { company:"", doorType:"예림", items:[{...EMPTY_ITEM}], status:"received", dueDate:"", memo:"", deliveryType:"직접출고" };
 const BRAND_KEYS    = ["예림","한솔","LX","lx"];
 const SKIP_KEYWORDS = ["소계","합계","총합","비고","※","견적","공사","품명","규격","수량","단가","금액","SUPER","인테리어","입금","색상명","필름","레이저","브랜드","전화","팩스","주소","업체","현장","접수","납기"];
 
@@ -63,22 +64,24 @@ function parseQuoteFile(file) {
         const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:"" });
 
         // 내부에서만 거래처명/현장명 읽기 (띄어쓰기 무시 키워드 매칭)
-        let company = "", location = "", dueDate = fileDate;
+        let company = "", location = "", dueDate = fileDate, deliveryType = "직접출고";
         for (const row of rows) {
           const flat = row.map(c => String(c??"").trim());
           const labeled = (kw) => {
-            // 공백 제거 후 키워드 포함 여부 체크
             const idx = flat.findIndex(c => c.replace(/\s/g,"").includes(kw.replace(/\s/g,"")));
             if (idx===-1) return null;
             return flat.slice(idx+1).find(c => c && c!==":" && c.trim()!=="") ?? null;
           };
-          // 거래처명 (업체명, 거래처명 둘 다 지원)
           const comp = labeled("거래처명") || labeled("업체명");
           if (comp) company = comp;
           const loc = labeled("현장명");
-          if (loc) location = loc;
-          const due = labeled("납기일");
-          if (due) { const cv = excelSerialToDate(due); if (cv) dueDate = cv; }
+          if (loc && ![":", ""].includes(loc.trim())) location = loc;
+          // 출고일 우선, 없으면 납기일
+          const outDate = labeled("출고일") || labeled("납기일");
+          if (outDate) { const cv = excelSerialToDate(outDate); if (cv) dueDate = cv; }
+          // 출고방식
+          const deliv = labeled("출고방식");
+          if (deliv && DELIVERY_TYPES.includes(deliv.trim())) deliveryType = deliv.trim();
         }
 
         let colorCol=0, brandCol=-1, qtyCol=-1, priceCol=-1, headerRowIdx=-1;
@@ -114,7 +117,7 @@ function parseQuoteFile(file) {
           items.push({ color:colorVal, qty:String(qty), unitPrice:String(price) });
         }
         resolve({ company, memo:location, dueDate, doorType:detectedBrand, status:"received",
-          items: items.length>0 ? items : [{...EMPTY_ITEM}] });
+          deliveryType, items: items.length>0 ? items : [{...EMPTY_ITEM}] });
       } catch(err) { reject(err); }
     };
     reader.onerror = reject;
@@ -205,6 +208,7 @@ export default function App() {
       dueDate: r.due_date||"",
       memo: r.memo||"",
       paid: r.paid||false,
+      deliveryType: r.delivery_type||"직접출고",
       createdAt: r.created_at?.slice(0,10)||"",
     }));
     setOrders(rows);
@@ -231,6 +235,7 @@ export default function App() {
       due_date: order.dueDate,
       memo: order.memo,
       paid: order.paid||false,
+      delivery_type: order.deliveryType||"직접출고",
     };
     const { error } = await supabase.from("orders").upsert(row);
     if (error) { flash("저장 실패","error"); console.error(error); }
@@ -285,6 +290,12 @@ export default function App() {
     setOrders(updated);
     await dbUpsert(updated.find(o=>o.id===id));
     flash("💳 결제완료 — 제작 시작!");
+  }
+
+  async function changeDelivery(id, deliveryType) {
+    const updated = orders.map(o=>o.id===id?{...o,deliveryType}:o);
+    setOrders(updated);
+    await dbUpsert(updated.find(o=>o.id===id));
   }
 
   /* ── 파일 업로드 ── */
@@ -381,6 +392,30 @@ export default function App() {
         </div>
       </header>
 
+      {/* ── 견적서 업로드 바 ── */}
+      {view!=="form" && (
+        <div
+          onClick={()=>!loading&&fileInputRef.current?.click()}
+          onDrop={onDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
+          style={{
+            margin:"12px 14px 0",
+            border:`2px dashed ${dragOver?"#3B82F6":"#1E3A5F"}`,
+            borderRadius:12, padding:"16px 20px",
+            cursor:"pointer", transition:"all .2s",
+            background: dragOver?"#1E3A5F33":"#111C2D",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:12,
+          }}
+        >
+          <span style={{fontSize:28}}>{loading?"⏳":"📎"}</span>
+          <div>
+            <div style={{color: dragOver?"#3B82F6":"#E2E8F0", fontSize:15, fontWeight:700}}>
+              {loading?"견적서 분석중...":"견적서 업로드 (클릭 또는 파일 드래그)"}
+            </div>
+            <div style={{color:"#475569", fontSize:12, marginTop:2}}>엑셀(.xlsx) 또는 이미지 파일</div>
+          </div>
+        </div>
+      )}
+
       {/* ── STAT BAR ── */}
       {view!=="form" && (
         <div style={{display:"flex",borderBottom:"1px solid #1E3A5F"}}>
@@ -408,7 +443,7 @@ export default function App() {
               filter={filter} setFilter={setFilter}
               search={search} setSearch={setSearch}
               sort={sort} setSort={setSort}
-              onEdit={openEdit} onDelete={deleteOrder} onStatus={changeStatus} onPaid={markPaid}/>
+              onEdit={openEdit} onDelete={deleteOrder} onStatus={changeStatus} onPaid={markPaid} onDelivery={changeDelivery}/>
         }
       </main>
 
@@ -429,7 +464,7 @@ export default function App() {
 }
 
 /* ══ 목록 패널 ══ */
-function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,onEdit,onDelete,onStatus,onPaid}) {
+function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,onEdit,onDelete,onStatus,onPaid,onDelivery}) {
   return (
     <div>
       <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -455,7 +490,7 @@ function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,on
       {orders.length===0
         ? <div style={{textAlign:"center",padding:"60px 0",color:"#1E3A5F"}}><div style={{fontSize:40}}>🚪</div><div style={{marginTop:8,fontSize:13}}>등록된 주문 없음</div></div>
         : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {orders.map(o=><OrderRow key={o.id} order={o} onEdit={onEdit} onDelete={onDelete} onStatus={onStatus} onPaid={onPaid}/>)}
+            {orders.map(o=><OrderRow key={o.id} order={o} onEdit={onEdit} onDelete={onDelete} onStatus={onStatus} onPaid={onPaid} onDelivery={onDelivery}/>))}
           </div>
       }
     </div>
@@ -463,7 +498,7 @@ function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,on
 }
 
 /* ══ 주문 카드 ══ */
-function OrderRow({order,onEdit,onDelete,onStatus,onPaid}) {
+function OrderRow({order,onEdit,onDelete,onStatus,onPaid,onDelivery}) {
   const st = STATUSES.find(s=>s.key===order.status)||STATUSES[0];
   const urgent = daysLeft(order.dueDate)<=3 && order.status!=="done";
   const [confirmDel, setConfirmDel] = useState(false);
@@ -484,7 +519,13 @@ function OrderRow({order,onEdit,onDelete,onStatus,onPaid}) {
       </div>
       {/* 정보 */}
       <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.8}}>
-        <div>🚪 {order.doorType} &ensp; 📅 {order.dueDate}</div>
+        <div>🚪 {order.doorType} &ensp; 📅 {order.dueDate} &ensp;
+          <span style={{
+            background: order.deliveryType==="직접출고"?"#1e3a5f": order.deliveryType==="용차출고"?"#3b1f5e":"#1a3a2a",
+            color: order.deliveryType==="직접출고"?"#60a5fa": order.deliveryType==="용차출고"?"#c084fc":"#4ade80",
+            borderRadius:6, padding:"1px 8px", fontSize:11, fontWeight:700
+          }}>{order.deliveryType||"직접출고"}</span>
+        </div>
         <div>🎨 {(order.items||[]).map(i=>`${i.color} ${fmtQty(parseFloat(i.qty)||0)}장`).join(" / ")}</div>
         <div style={{color:"#E2E8F0",fontWeight:700}}>
           총 {fmtQty(qty)}장
@@ -539,9 +580,13 @@ function OrderRow({order,onEdit,onDelete,onStatus,onPaid}) {
 
       {/* 액션 */}
       <div style={{display:"flex",gap:6,marginTop:10,alignItems:"center",flexWrap:"wrap"}}>
-        <select className="inp" style={{flex:"1 1 100px",fontSize:12,padding:"6px 8px",minHeight:36}}
+        <select className="inp" style={{flex:"1 1 90px",fontSize:12,padding:"6px 8px",minHeight:36}}
           value={order.status} onChange={e=>onStatus(order.id,e.target.value)}>
           {STATUSES.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+        <select className="inp" style={{flex:"1 1 80px",fontSize:12,padding:"6px 8px",minHeight:36}}
+          value={order.deliveryType||"직접출고"} onChange={e=>onDelivery(order.id,e.target.value)}>
+          {DELIVERY_TYPES.map(d=><option key={d}>{d}</option>)}
         </select>
         <button className="btn btn-slate" style={{padding:"6px 12px",fontSize:12,minHeight:36}} onClick={()=>onEdit(order)}>수정</button>
         {confirmDel
@@ -628,10 +673,15 @@ function FormPanel({form,setForm,onSave,onCancel,isEdit,preview}) {
               {DOOR_TYPES.map(d=><option key={d}>{d}</option>)}
             </select>
           </Field>
-          <Field label="납기일 *">
-            <input className="inp" type="date" value={form.dueDate} onChange={e=>f("dueDate",e.target.value)}/>
+          <Field label="출고방식">
+            <select className="inp" value={form.deliveryType||"직접출고"} onChange={e=>f("deliveryType",e.target.value)}>
+              {DELIVERY_TYPES.map(d=><option key={d}>{d}</option>)}
+            </select>
           </Field>
         </div>
+        <Field label="납기일 *">
+          <input className="inp" type="date" value={form.dueDate} onChange={e=>f("dueDate",e.target.value)}/>
+        </Field>
 
         {/* 색상별 행 */}
         <Field label="색상별 장수 · 임가공비 *">
