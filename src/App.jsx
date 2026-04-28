@@ -236,6 +236,7 @@ export default function App() {
     flash(`"${name}" 삭제됐습니다`,"warn");
   }
   function changeStatus(id, status) { save(orders.map(o=>o.id===id?{...o,status}:o)); }
+  function markPaid(id) { save(orders.map(o=>o.id===id?{...o,paid:true}:o)); flash("💳 결제완료 — 제작 시작!"); }
 
   /* ── 파일 업로드 ── */
   async function handleFiles(files) {
@@ -358,7 +359,7 @@ export default function App() {
               filter={filter} setFilter={setFilter}
               search={search} setSearch={setSearch}
               sort={sort} setSort={setSort}
-              onEdit={openEdit} onDelete={deleteOrder} onStatus={changeStatus}/>
+              onEdit={openEdit} onDelete={deleteOrder} onStatus={changeStatus} onPaid={markPaid}/>
         }
       </main>
 
@@ -379,7 +380,7 @@ export default function App() {
 }
 
 /* ══ 목록 패널 ══ */
-function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,onEdit,onDelete,onStatus}) {
+function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,onEdit,onDelete,onStatus,onPaid}) {
   return (
     <div>
       <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -405,7 +406,7 @@ function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,on
       {orders.length===0
         ? <div style={{textAlign:"center",padding:"60px 0",color:"#1E3A5F"}}><div style={{fontSize:40}}>🚪</div><div style={{marginTop:8,fontSize:13}}>등록된 주문 없음</div></div>
         : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {orders.map(o=><OrderRow key={o.id} order={o} onEdit={onEdit} onDelete={onDelete} onStatus={onStatus}/>)}
+            {orders.map(o=><OrderRow key={o.id} order={o} onEdit={onEdit} onDelete={onDelete} onStatus={onStatus} onPaid={onPaid}/>)}
           </div>
       }
     </div>
@@ -413,7 +414,7 @@ function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,on
 }
 
 /* ══ 주문 카드 ══ */
-function OrderRow({order,onEdit,onDelete,onStatus}) {
+function OrderRow({order,onEdit,onDelete,onStatus,onPaid}) {
   const st = STATUSES.find(s=>s.key===order.status)||STATUSES[0];
   const urgent = daysLeft(order.dueDate)<=3 && order.status!=="done";
   const [confirmDel, setConfirmDel] = useState(false);
@@ -460,7 +461,7 @@ function OrderRow({order,onEdit,onDelete,onStatus}) {
             <button
               className="btn"
               style={{flex:1,background:"#166534",color:"#4ade80",fontSize:14,padding:"10px",fontWeight:800}}
-              onClick={()=>{ onStatus(order.id, "production"); setConfirmPay(false); onEdit({...order, paid:true, _savePaid:true}); }}
+              onClick={()=>{ onStatus(order.id, "production"); onPaid(order.id); setConfirmPay(false); }}
             >
               ✅ 맞아요 — 제작 시작
             </button>
