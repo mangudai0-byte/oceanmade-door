@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 /* ══ 상수 ══ */
 const STORAGE_KEY = "oceanmade_door_v1";
@@ -176,35 +182,60 @@ export default function App() {
   const fileInputRef = useRef(null);
   const nextId = useRef(1);
 
-  /* ── localStorage 기반 공유 스토리지 ── */
-  const save = useCallback((data) => {
-    setOrders(data);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  /* ── Supabase DB 연동 ── */
+  const migrateStatus = s => {
+    const map = { inquiry:"received", measuring:"received", delivery:"ready" };
+    return map[s] || (STATUSES.find(st=>st.key===s) ? s : "received");
+  };
+
+  // DB에서 전체 주문 로드
+  const loadOrders = useCallback(async () => {
+    const { data, error } = await supabase.from("orders").select("*").order("id");
+    if (error) { console.error(error); setOrders([]); return; }
+    const rows = (data||[]).map(r => ({
+      id: r.id,
+      company: r.company||"",
+      doorType: r.door_type||"예림",
+      items: r.items||[],
+      status: migrateStatus(r.status||"received"),
+      dueDate: r.due_date||"",
+      memo: r.memo||"",
+      paid: r.paid||false,
+      createdAt: r.created_at?.slice(0,10)||"",
+    }));
+    setOrders(rows);
+    if (rows.length) nextId.current = Math.max(...rows.map(o=>o.id)) + 1;
   }, []);
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const migrateStatus = s => {
-      const map = { inquiry:"received", measuring:"received", delivery:"ready" };
-      return map[s] || (STATUSES.find(st=>st.key===s) ? s : "received");
+    loadOrders();
+    // 실시간 구독 — 다른 기기 변경사항 즉시 반영
+    const channel = supabase.channel("orders-realtime")
+      .on("postgres_changes", { event:"*", schema:"public", table:"orders" }, () => loadOrders())
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [loadOrders]);
+
+  // DB 저장 함수
+  async function dbUpsert(order) {
+    const row = {
+      id: order.id,
+      company: order.company,
+      door_type: order.doorType,
+      items: order.items,
+      status: order.status,
+      due_date: order.dueDate,
+      memo: order.memo,
+      paid: order.paid||false,
     };
-    if (raw) {
-      const data = JSON.parse(raw).map(o=>({...o, status:migrateStatus(o.status)}));
-      setOrders(data);
-      if (data.length) nextId.current = Math.max(...data.map(o=>o.id)) + 1;
-    } else {
-      setOrders([]);
-    }
-    // 다른 탭/기기 변경 감지
-    const onStorage = (e) => {
-      if (e.key===STORAGE_KEY && e.newValue) {
-        const data = JSON.parse(e.newValue).map(o=>({...o}));
-        setOrders(data);
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+    const { error } = await supabase.from("orders").upsert(row);
+    if (error) { flash("저장 실패","error"); console.error(error); }
+  }
+
+  async function dbDelete(id) {
+    const { error } = await supabase.from("orders").delete().eq("id", id);
+    if (error) { flash("삭제 실패","error"); console.error(error); }
+  }
 
   function flash(msg, type="ok") { setToast({msg,type}); setTimeout(()=>setToast(null),2800); }
 
@@ -216,27 +247,41 @@ export default function App() {
     if (!form.company || !form.dueDate || form.items.every(i=>!i.qty)) {
       flash("거래처명·납기일·장수 필수","error"); return;
     }
-    let next;
+    const { _savePaid, ...cleanForm } = form;
     if (editId) {
       const orig = orders.find(o=>o.id===editId);
-      const savePaid = form._savePaid;
-      const { _savePaid, ...cleanForm } = form;
-      next = orders.map(o => o.id===editId ? {...cleanForm, id:editId, createdAt:o.createdAt, paid: savePaid ? true : o.paid} : o);
-      flash(savePaid ? "💳 결제완료 — 제작 시작!" : "수정 저장 완료");
+      const updated = {...cleanForm, id:editId, createdAt:orig.createdAt, paid: _savePaid ? true : orig.paid};
+      setOrders(orders.map(o=>o.id===editId?updated:o));
+      await dbUpsert(updated);
+      flash("수정 저장 완료");
     } else {
       const id = nextId.current++;
-      next = [...orders, {...form, id, createdAt:new Date().toISOString().slice(0,10)}];
+      const newOrder = {...cleanForm, id, paid:false, createdAt:new Date().toISOString().slice(0,10)};
+      setOrders([...orders, newOrder]);
+      await dbUpsert(newOrder);
       flash("새 주문 등록 완료");
     }
-    save(next); setView("list"); setPreview(null);
+    setView("list"); setPreview(null);
   }
 
-  function deleteOrder(id, name) {
-    save(orders.filter(o=>o.id!==id));
+  async function deleteOrder(id, name) {
+    setOrders(orders.filter(o=>o.id!==id));
+    await dbDelete(id);
     flash(`"${name}" 삭제됐습니다`,"warn");
   }
-  function changeStatus(id, status) { save(orders.map(o=>o.id===id?{...o,status}:o)); }
-  function markPaid(id) { save(orders.map(o=>o.id===id?{...o,paid:true}:o)); flash("💳 결제완료 — 제작 시작!"); }
+
+  async function changeStatus(id, status) {
+    const updated = orders.map(o=>o.id===id?{...o,status}:o);
+    setOrders(updated);
+    await dbUpsert(updated.find(o=>o.id===id));
+  }
+
+  async function markPaid(id) {
+    const updated = orders.map(o=>o.id===id?{...o,paid:true}:o);
+    setOrders(updated);
+    await dbUpsert(updated.find(o=>o.id===id));
+    flash("💳 결제완료 — 제작 시작!");
+  }
 
   /* ── 파일 업로드 ── */
   async function handleFiles(files) {
