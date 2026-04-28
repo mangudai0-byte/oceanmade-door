@@ -21,7 +21,7 @@ const STATUSES = [
 const DOOR_TYPES    = ["예림", "한솔", "LX"];
 const COLOR_PRESETS = ["매트화이트","매트밀크화이트","매트캐시미어","매트포그그레이","글로시화이트","글로시밀크화이트","직접입력"];
 const EMPTY_ITEM      = { color: "매트화이트", qty: "", unitPrice: "" };
-const DELIVERY_TYPES  = ["직접출고", "용차출고", "배송"];
+const DELIVERY_TYPES  = ["직접출고", "용차출고", "예림배송"];
 const EMPTY_FORM      = { company:"", doorType:"예림", items:[{...EMPTY_ITEM}], status:"received", dueDate:"", memo:"", deliveryType:"직접출고" };
 const BRAND_KEYS    = ["예림","한솔","LX","lx"];
 const SKIP_KEYWORDS = ["소계","합계","총합","비고","※","견적","공사","품명","규격","수량","단가","금액","SUPER","인테리어","입금","색상명","필름","레이저","브랜드","전화","팩스","주소","업체","현장","접수","납기"];
@@ -328,7 +328,10 @@ export default function App() {
 
   /* ── 필터 ── */
   const filtered = (orders||[])
-    .filter(o => filter==="all" || o.status===filter)
+    .filter(o => {
+      if (filter === "all") return o.status !== "done"; // 전체에서 출고 제외
+      return o.status === filter;
+    })
     .filter(o => !search || [o.company,o.doorType,o.memo].some(v=>v&&v.includes(search)))
     .sort((a,b) => sort==="dueDate" ? new Date(a.dueDate)-new Date(b.dueDate)
                  : sort==="company" ? a.company.localeCompare(b.company,"ko")
@@ -487,7 +490,7 @@ function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,on
       </div>
       {/* 상태 필터 탭 */}
       <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
-        {[{key:"all",label:"전체",n:all.length},...STATUSES.map(s=>({key:s.key,label:s.label,n:all.filter(o=>o.status===s.key).length}))].map(t=>(
+        {[{key:"all",label:"전체",n:all.filter(o=>o.status!=="done").length},...STATUSES.map(s=>({key:s.key,label:s.label,n:all.filter(o=>o.status===s.key).length}))].map(t=>(
           <button key={t.key}
             className={`btn ${filter===t.key?"btn-blue":"btn-slate"}`}
             style={{flexShrink:0,padding:"6px 10px",fontSize:12}}
