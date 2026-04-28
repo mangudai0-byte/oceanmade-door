@@ -423,14 +423,14 @@ function OrderRow({order,onEdit,onDelete,onStatus}) {
         <DueBadge dueDate={order.dueDate} status={order.status}/>
       </div>
       {/* 정보 */}
-      <div style={{fontSize:12,color:"#64748B",lineHeight:1.8}}>
+      <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.8}}>
         <div>🚪 {order.doorType} &ensp; 📅 {order.dueDate}</div>
         <div>🎨 {(order.items||[]).map(i=>`${i.color} ${fmtQty(parseFloat(i.qty)||0)}장`).join(" / ")}</div>
-        <div style={{color:"#94A3B8",fontWeight:700}}>
+        <div style={{color:"#E2E8F0",fontWeight:700}}>
           총 {fmtQty(totalQty(order.items||[]))}장
           {totalAmt(order.items||[])>0 && <span style={{color:"#34D399",marginLeft:8}}>{totalAmt(order.items||[]).toLocaleString()}원</span>}
         </div>
-        {order.memo && <div style={{color:"#475569"}}>📝 {order.memo}</div>}
+        {order.memo && <div style={{color:"#94A3B8"}}>📝 {order.memo}</div>}
       </div>
       {/* 액션 */}
       <div style={{display:"flex",gap:6,marginTop:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -469,8 +469,8 @@ function KanbanPanel({orders,onEdit,onDelete,onStatus}) {
               {col.map(o=>(
                 <div key={o.id} className="card" style={{padding:10,borderTop:`3px solid ${st.color}`}}>
                   <div style={{fontWeight:700,fontSize:13,color:"#F1F5F9",marginBottom:2}}>{o.company}</div>
-                  <div style={{fontSize:11,color:"#475569",marginBottom:2}}>{o.doorType}</div>
-                  <div style={{fontSize:11,color:"#475569",marginBottom:4}}>{(o.items||[]).map(i=>`${i.color} ${fmtQty(parseFloat(i.qty)||0)}장`).join(" / ")}</div>
+                  <div style={{fontSize:11,color:"#CBD5E1",marginBottom:2}}>{o.doorType}</div>
+                  <div style={{fontSize:11,color:"#CBD5E1",marginBottom:4}}>{(o.items||[]).map(i=>`${i.color} ${fmtQty(parseFloat(i.qty)||0)}장`).join(" / ")}</div>
                   <div style={{fontSize:11,color:"#94A3B8",fontWeight:700,marginBottom:6}}>총 {fmtQty(totalQty(o.items||[]))}장</div>
                   <DueBadge dueDate={o.dueDate} status={o.status}/>
                   <div style={{display:"flex",gap:4,marginTop:8}}>
