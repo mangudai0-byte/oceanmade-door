@@ -218,8 +218,11 @@ export default function App() {
     }
     let next;
     if (editId) {
-      next = orders.map(o => o.id===editId ? {...form,id:editId,createdAt:o.createdAt} : o);
-      flash("수정 저장 완료");
+      const orig = orders.find(o=>o.id===editId);
+      const savePaid = form._savePaid;
+      const { _savePaid, ...cleanForm } = form;
+      next = orders.map(o => o.id===editId ? {...cleanForm, id:editId, createdAt:o.createdAt, paid: savePaid ? true : o.paid} : o);
+      flash(savePaid ? "💳 결제완료 — 제작 시작!" : "수정 저장 완료");
     } else {
       const id = nextId.current++;
       next = [...orders, {...form, id, createdAt:new Date().toISOString().slice(0,10)}];
@@ -287,6 +290,7 @@ export default function App() {
         .inp:focus{outline:none;border-color:#3B82F6}
         @keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
         @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+        @keyframes pulse3{0%,100%{box-shadow:0 4px 20px rgba(99,102,241,0.4)}50%{box-shadow:0 4px 32px rgba(99,102,241,0.8)}}
         /* 모바일 터치 영역 확보 */
         select.inp{min-height:42px}
         input.inp{min-height:42px}
@@ -413,6 +417,11 @@ function OrderRow({order,onEdit,onDelete,onStatus}) {
   const st = STATUSES.find(s=>s.key===order.status)||STATUSES[0];
   const urgent = daysLeft(order.dueDate)<=3 && order.status!=="done";
   const [confirmDel, setConfirmDel] = useState(false);
+  const [confirmPay, setConfirmPay] = useState(false);
+  const amt = totalAmt(order.items||[]);
+  const qty = totalQty(order.items||[]);
+  const isPaid = order.paid;
+  const isReceived = order.status === "received";
 
   return (
     <div className="card" style={{padding:"12px 14px",borderLeft:`4px solid ${st.color}`,background:urgent?"#150c08":"#111C2D"}}>
@@ -421,17 +430,63 @@ function OrderRow({order,onEdit,onDelete,onStatus}) {
         <span style={{fontSize:15,fontWeight:700,color:"#F1F5F9"}}>{order.company}</span>
         <span style={{background:st.color+"28",color:st.color,borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:700}}>{st.icon} {st.label}</span>
         <DueBadge dueDate={order.dueDate} status={order.status}/>
+        {isPaid && <span style={{background:"#052e16",color:"#4ade80",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:800}}>💳 결제완료</span>}
       </div>
       {/* 정보 */}
       <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.8}}>
         <div>🚪 {order.doorType} &ensp; 📅 {order.dueDate}</div>
         <div>🎨 {(order.items||[]).map(i=>`${i.color} ${fmtQty(parseFloat(i.qty)||0)}장`).join(" / ")}</div>
         <div style={{color:"#E2E8F0",fontWeight:700}}>
-          총 {fmtQty(totalQty(order.items||[]))}장
-          {totalAmt(order.items||[])>0 && <span style={{color:"#34D399",marginLeft:8}}>{totalAmt(order.items||[]).toLocaleString()}원</span>}
+          총 {fmtQty(qty)}장
+          {amt>0 && <span style={{color:"#34D399",marginLeft:8}}>{amt.toLocaleString()}원</span>}
         </div>
         {order.memo && <div style={{color:"#94A3B8"}}>📝 {order.memo}</div>}
       </div>
+
+      {/* 결제완료 확인 팝업 */}
+      {confirmPay && (
+        <div style={{margin:"12px 0",background:"#0a2540",border:"2px solid #1D4ED8",borderRadius:12,padding:"14px 16px"}}>
+          <div style={{color:"#60A5FA",fontWeight:800,fontSize:14,marginBottom:8}}>💳 결제금액이 정확한가요?</div>
+          <div style={{color:"#E2E8F0",fontSize:13,marginBottom:4}}>
+            거래처: <b>{order.company}</b>
+          </div>
+          <div style={{color:"#E2E8F0",fontSize:13,marginBottom:4}}>
+            총 <b>{fmtQty(qty)}장</b>
+          </div>
+          <div style={{fontSize:18,fontWeight:900,color:"#34D399",marginBottom:14}}>
+            {amt.toLocaleString()}원
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button
+              className="btn"
+              style={{flex:1,background:"#166534",color:"#4ade80",fontSize:14,padding:"10px",fontWeight:800}}
+              onClick={()=>{ onStatus(order.id, "production"); setConfirmPay(false); onEdit({...order, paid:true, _savePaid:true}); }}
+            >
+              ✅ 맞아요 — 제작 시작
+            </button>
+            <button className="btn btn-slate" style={{padding:"10px 14px"}} onClick={()=>setConfirmPay(false)}>취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* 결제완료 버튼 — 접수도면 상태이고 아직 결제 전일 때만 표시 */}
+      {isReceived && !isPaid && !confirmPay && (
+        <button
+          onClick={()=>setConfirmPay(true)}
+          style={{
+            width:"100%", marginTop:12,
+            background:"linear-gradient(135deg,#1D4ED8,#7C3AED)",
+            color:"#fff", border:"none", borderRadius:10,
+            padding:"14px", fontSize:16, fontWeight:900,
+            cursor:"pointer", letterSpacing:0.5,
+            boxShadow:"0 4px 20px rgba(99,102,241,0.4)",
+            animation:"pulse3 2s ease-in-out infinite",
+          }}
+        >
+          💳 결제완료
+        </button>
+      )}
+
       {/* 액션 */}
       <div style={{display:"flex",gap:6,marginTop:10,alignItems:"center",flexWrap:"wrap"}}>
         <select className="inp" style={{flex:"1 1 100px",fontSize:12,padding:"6px 8px",minHeight:36}}
