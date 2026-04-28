@@ -50,12 +50,11 @@ function parseQuoteFile(file) {
     reader.onload = (e) => {
       try {
         const wb = XLSX.read(e.target.result, { type:"array", cellDates:false });
+
+        // 파일명에서 날짜만 파싱 (거래처/현장은 내부에서만 읽음)
         const base = file.name.replace(/\.(xlsx|xls)$/i, "");
         const parts = base.split("_");
         const datePart = parts.find(p => /^\d{6}$/.test(p)) || "";
-        const namePart = parts.filter(p => p !== datePart).join("_");
-        const companyFromName = namePart.split("-")[0] || "";
-        const locationFromName = namePart.split("-").slice(1).join("-") || "";
         const fileDate = datePart.length===6
           ? `20${datePart.slice(0,2)}-${datePart.slice(2,4)}-${datePart.slice(4,6)}` : "";
 
@@ -63,17 +62,22 @@ function parseQuoteFile(file) {
         const ws = wb.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:"" });
 
-        let company = companyFromName, location = locationFromName, dueDate = fileDate;
+        // 내부에서만 거래처명/현장명 읽기 (띄어쓰기 무시 키워드 매칭)
+        let company = "", location = "", dueDate = fileDate;
         for (const row of rows) {
           const flat = row.map(c => String(c??"").trim());
           const labeled = (kw) => {
-            const idx = flat.findIndex(c => c.replace(/\s/g,"").includes(kw));
+            // 공백 제거 후 키워드 포함 여부 체크
+            const idx = flat.findIndex(c => c.replace(/\s/g,"").includes(kw.replace(/\s/g,"")));
             if (idx===-1) return null;
-            return flat.slice(idx+1).find(c => c && c!==":") ?? null;
+            return flat.slice(idx+1).find(c => c && c!==":" && c.trim()!=="") ?? null;
           };
-          const comp = labeled("업체명"); if (comp) company = comp;
-          const loc  = labeled("현장명"); if (loc) location = loc;
-          const due  = labeled("납기일");
+          // 거래처명 (업체명, 거래처명 둘 다 지원)
+          const comp = labeled("거래처명") || labeled("업체명");
+          if (comp) company = comp;
+          const loc = labeled("현장명");
+          if (loc) location = loc;
+          const due = labeled("납기일");
           if (due) { const cv = excelSerialToDate(due); if (cv) dueDate = cv; }
         }
 
