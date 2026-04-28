@@ -490,7 +490,7 @@ function ListPanel({orders,all,filter,setFilter,search,setSearch,sort,setSort,on
       {orders.length===0
         ? <div style={{textAlign:"center",padding:"60px 0",color:"#1E3A5F"}}><div style={{fontSize:40}}>🚪</div><div style={{marginTop:8,fontSize:13}}>등록된 주문 없음</div></div>
         : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {orders.map(o=><OrderRow key={o.id} order={o} onEdit={onEdit} onDelete={onDelete} onStatus={onStatus} onPaid={onPaid} onDelivery={onDelivery}/>))}
+            {orders.map(o=><OrderRow key={o.id} order={o} onEdit={onEdit} onDelete={onDelete} onStatus={onStatus} onPaid={onPaid} onDelivery={onDelivery}/>)}
           </div>
       }
     </div>
