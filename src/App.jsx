@@ -74,14 +74,23 @@ function parseQuoteFile(file) {
           };
           const comp = labeled("거래처명") || labeled("업체명");
           if (comp) company = comp;
+          // 현장명 — 회사/주소 관련 키워드가 아닐 때만 저장, 없으면 미정
           const loc = labeled("현장명");
-          if (loc && ![":", ""].includes(loc.trim())) location = loc;
+          const locSkip = ["상호","법인","오션","성명","주소","등록","전화","팩스","업태","업종",":"];
+          if (loc && !locSkip.some(k => loc.includes(k))) {
+            location = loc;
+          } else if (!location) {
+            location = "미정";
+          }
           // 출고일 우선, 없으면 납기일
           const outDate = labeled("출고일") || labeled("납기일");
           if (outDate) { const cv = excelSerialToDate(outDate); if (cv) dueDate = cv; }
-          // 출고방식
+          // 출고방식 — 부분 매칭 (예림배송→배송, 직접출고→직접출고)
           const deliv = labeled("출고방식");
-          if (deliv && DELIVERY_TYPES.includes(deliv.trim())) deliveryType = deliv.trim();
+          if (deliv) {
+            const matched = DELIVERY_TYPES.find(d => deliv.includes(d));
+            if (matched) deliveryType = matched;
+          }
         }
 
         let colorCol=0, brandCol=-1, qtyCol=-1, priceCol=-1, headerRowIdx=-1;
