@@ -16,7 +16,7 @@ const STATUSES = [
   { key: "received",   label: "접수도면",    color: "#F59E0B", icon: "📨" },
   { key: "production", label: "제작중",      color: "#A78BFA", icon: "🔨" },
   { key: "ready",      label: "배송준비완료", color: "#F472B6", icon: "🚚" },
-  { key: "done",       label: "출고",        color: "#34D399", icon: "✅" },
+  { key: "done",       label: "출고완료",    color: "#34D399", icon: "✅" },
 ];
 const DOOR_TYPES    = ["예림", "한솔", "LX"];
 const COLOR_PRESETS = ["매트화이트","매트밀크화이트","매트캐시미어","매트포그그레이","글로시화이트","글로시밀크화이트","직접입력"];
@@ -438,10 +438,10 @@ export default function App() {
       {view!=="form" && (
         <div style={{display:"flex",borderBottom:"1px solid #1E3A5F"}}>
           {[
-            {label:"전체",  val:orders.length,                                  color:"#3B82F6"},
-            {label:"접수",  val:orders.filter(o=>o.status==="received").length,  color:"#F59E0B"},
-            {label:"제작중", val:orders.filter(o=>o.status==="production").length,color:"#A78BFA"},
-            {label:"출고",  val:orders.filter(o=>o.status==="done").length,      color:"#34D399"},
+            {label:"전체",   val:orders.filter(o=>o.status!=="done").length,          color:"#3B82F6"},
+            {label:"도면접수", val:orders.filter(o=>o.status==="received").length,      color:"#F59E0B"},
+            {label:"제작중",  val:orders.filter(o=>o.status==="production").length,    color:"#A78BFA"},
+            {label:"출고완료", val:orders.filter(o=>o.status==="done").length,          color:"#34D399"},
           ].map(s=>(
             <div key={s.label} style={{flex:1,textAlign:"center",padding:"10px 4px",borderRight:"1px solid #1E3A5F"}}>
               <div style={{fontSize:20,fontWeight:900,color:s.color,fontFamily:"'Bebas Neue',sans-serif"}}>{s.val}</div>
