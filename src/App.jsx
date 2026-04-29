@@ -389,6 +389,10 @@ export default function App() {
               onClick={()=>setView(v=>v==="kanban"?"list":"kanban")}>
               {view==="kanban"?"📋":"🗂"}
             </button>
+            <button className="btn btn-slate" style={{padding:"7px 10px",fontSize:12}}
+              onClick={()=>setView(v=>v==="ranking"?"list":"ranking")}>
+              🏆
+            </button>
             <div
               onClick={()=>!loading&&fileInputRef.current?.click()}
               onDrop={onDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
@@ -453,6 +457,8 @@ export default function App() {
           ? <FormPanel form={form} setForm={setForm} onSave={submitForm} onCancel={()=>{setView("list");setPreview(null);}} isEdit={!!editId} preview={preview}/>
           : view==="kanban"
           ? <KanbanPanel orders={orders} onEdit={openEdit} onDelete={deleteOrder} onStatus={changeStatus}/>
+          : view==="ranking"
+          ? <RankingPanel orders={orders}/>
           : <ListPanel orders={filtered} all={orders}
               filter={filter} setFilter={setFilter}
               search={search} setSearch={setSearch}
@@ -650,6 +656,128 @@ function KanbanPanel({orders,onEdit,onDelete,onStatus}) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ══ 매출 랭킹 패널 ══ */
+function RankingPanel({orders}) {
+  const now = new Date();
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`);
+
+  const prevMonth = () => {
+    const [y,m] = month.split("-").map(Number);
+    const d = new Date(y, m-2, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+  };
+  const nextMonth = () => {
+    const [y,m] = month.split("-").map(Number);
+    const d = new Date(y, m, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+  };
+  const isThisMonth = month === `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+
+  // 해당 월 주문 필터
+  const monthOrders = orders.filter(o => o.dueDate && o.dueDate.startsWith(month));
+
+  // 업체별 집계
+  const rankMap = {};
+  for (const o of monthOrders) {
+    if (!o.company) continue;
+    if (!rankMap[o.company]) rankMap[o.company] = { company:o.company, amt:0, qty:0, count:0 };
+    rankMap[o.company].amt  += totalAmt(o.items||[]);
+    rankMap[o.company].qty  += totalQty(o.items||[]);
+    rankMap[o.company].count += 1;
+  }
+
+  const byAmt = Object.values(rankMap).sort((a,b)=>b.amt-a.amt);
+  const byQty = Object.values(rankMap).sort((a,b)=>b.qty-a.qty);
+
+  const totalMonthAmt = byAmt.reduce((s,r)=>s+r.amt, 0);
+  const totalMonthQty = byAmt.reduce((s,r)=>s+r.qty, 0);
+
+  const medalColor = (i) => i===0?"#FFD700":i===1?"#C0C0C0":i===2?"#CD7F32":"#475569";
+  const medal = (i) => i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`;
+
+  return (
+    <div style={{maxWidth:600,margin:"0 auto"}}>
+      {/* 월 선택 */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:2,color:"#fff"}}>
+          🏆 매출 랭킹
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button className="btn btn-slate" style={{padding:"6px 10px",fontSize:13}} onClick={prevMonth}>◀</button>
+          <span style={{color:"#E2E8F0",fontWeight:700,fontSize:14,minWidth:70,textAlign:"center"}}>{month}</span>
+          <button className="btn btn-slate" style={{padding:"6px 10px",fontSize:13}} onClick={nextMonth} disabled={isThisMonth}>▶</button>
+          {!isThisMonth && <button className="btn btn-blue" style={{fontSize:12,padding:"6px 10px"}} onClick={()=>setMonth(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`)}>이번달</button>}
+        </div>
+      </div>
+
+      {/* 합계 */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+        {[
+          {label:"이달 총 매출",val:`${totalMonthAmt.toLocaleString()}원`,color:"#34D399"},
+          {label:"이달 총 장수",val:`${fmtQty(totalMonthQty)}장`,color:"#60A5FA"},
+        ].map(s=>(
+          <div key={s.label} className="card" style={{padding:"12px 16px",textAlign:"center"}}>
+            <div style={{fontSize:11,color:"#475569",marginBottom:4}}>{s.label}</div>
+            <div style={{fontSize:20,fontWeight:900,color:s.color}}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {byAmt.length===0
+        ? <div style={{textAlign:"center",padding:"60px 0",color:"#1E3A5F"}}>
+            <div style={{fontSize:40}}>📊</div>
+            <div style={{marginTop:8,fontSize:13}}>해당 월 데이터가 없습니다</div>
+          </div>
+        : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {/* 금액 랭킹 */}
+            <div>
+              <div style={{color:"#94A3B8",fontSize:12,fontWeight:700,marginBottom:8}}>💰 매출액 순위</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {byAmt.map((r,i)=>(
+                  <div key={r.company} className="card" style={{padding:"10px 12px",borderLeft:`3px solid ${medalColor(i)}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:16,minWidth:24}}>{medal(i)}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{color:"#F1F5F9",fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.company}</div>
+                        <div style={{color:"#34D399",fontWeight:800,fontSize:13}}>{r.amt.toLocaleString()}원</div>
+                        <div style={{color:"#475569",fontSize:11}}>{fmtQty(r.qty)}장 · {r.count}건</div>
+                      </div>
+                    </div>
+                    {/* 비율 바 */}
+                    <div style={{marginTop:6,height:3,background:"#1E3A5F",borderRadius:2}}>
+                      <div style={{height:"100%",borderRadius:2,background:medalColor(i),width:`${totalMonthAmt>0?(r.amt/totalMonthAmt*100).toFixed(1):0}%`,transition:"width .5s"}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* 장수 랭킹 */}
+            <div>
+              <div style={{color:"#94A3B8",fontSize:12,fontWeight:700,marginBottom:8}}>📐 장수 순위</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {byQty.map((r,i)=>(
+                  <div key={r.company} className="card" style={{padding:"10px 12px",borderLeft:`3px solid ${medalColor(i)}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:16,minWidth:24}}>{medal(i)}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{color:"#F1F5F9",fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.company}</div>
+                        <div style={{color:"#60A5FA",fontWeight:800,fontSize:13}}>{fmtQty(r.qty)}장</div>
+                        <div style={{color:"#475569",fontSize:11}}>{r.amt.toLocaleString()}원 · {r.count}건</div>
+                      </div>
+                    </div>
+                    <div style={{marginTop:6,height:3,background:"#1E3A5F",borderRadius:2}}>
+                      <div style={{height:"100%",borderRadius:2,background:medalColor(i),width:`${totalMonthQty>0?(r.qty/totalMonthQty*100).toFixed(1):0}%`,transition:"width .5s"}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+      }
     </div>
   );
 }
