@@ -85,11 +85,13 @@ function parseQuoteFile(file) {
           // 출고일 우선, 없으면 납기일
           const outDate = labeled("출고일") || labeled("납기일");
           if (outDate) { const cv = excelSerialToDate(outDate); if (cv) dueDate = cv; }
-          // 출고방식 — 부분 매칭 (예림배송→배송, 직접출고→직접출고)
+          // 출고방식 — 유연한 키워드 매칭
           const deliv = labeled("출고방식");
           if (deliv) {
-            const matched = DELIVERY_TYPES.find(d => deliv.includes(d));
-            if (matched) deliveryType = matched;
+            const d = deliv.replace(/\s/g,"");
+            if (d.includes("예림") || d.includes("배송")) deliveryType = "예림배송";
+            else if (d.includes("용차")) deliveryType = "용차출고";
+            else if (d.includes("직접") || d.includes("수령")) deliveryType = "직접출고";
           }
         }
 
