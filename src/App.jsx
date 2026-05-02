@@ -63,7 +63,104 @@ function parseQuoteFile(file) {
         const ws = wb.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:"" });
 
-        // 내부에서만 거래처명/현장명 읽기 (띄어쓰기 무시 키워드 매칭)
+        // ── 한셀 양식 감지 ──
+        // 특징: 거래처명이 행 키워드 옆이 아닌 특정 셀(G5)에 단독으로 있고
+        //        색상명 헤더가 없고 B열에 색상, O열에 수량, S열에 단가
+        const isHancel = (() => {
+          // "색상명" 헤더가 없고 브랜드명 셀이 따로 있으면 한셀
+          const hasColorHeader = rows.some(r => r.map(c=>String(c??"").trim()).some(c=>c==="색상명"));
+          const hasBrandCell = rows.some(r => r.map(c=>String(c??"").trim()).some(c=>c==="브랜드명"));
+          return !hasColorHeader && hasBrandCell;
+        })();
+
+        let company = "", location = "", dueDate = fileDate, deliveryType = "직접출고";
+
+        if (isHancel) {
+          // ── 한셀 파싱 ──
+          // 행5: G열=거래처명, 행6: G열=현장명(공사명), 행8: G열=출고일, 행9: G열=브랜드명
+          // 색상행: B열=색상명, O열=수량, S열=단가 (헤더행 아래부터)
+          const getCellVal = (row, colIdx) => String(row?.[colIdx]??"").trim();
+
+          // 열 인덱스 찾기 (A=0, B=1, G=6, O=14, S=18)
+          let brandName = "예림";
+          let headerRowIdx = -1;
+
+          for (let ri = 0; ri < rows.length; ri++) {
+            const flat = rows[ri].map(c => String(c??"").trim());
+            const labeled = (kw) => {
+              const idx = flat.findIndex(c => c.replace(/\s/g,"").includes(kw.replace(/\s/g,"")));
+              if (idx===-1) return null;
+              return flat.slice(idx+1).find(c => c && c!==":" && c.trim()!=="") ?? null;
+            };
+
+            // 거래처명 — "거래처명" 키워드 또는 "공사명" 키워드 뒤
+            const comp = labeled("거래처명") || labeled("공사명") || labeled("업체명");
+            if (comp) company = comp;
+
+            // 현장명
+            const loc = labeled("현장명");
+            const locSkip = ["상호","법인","오션","성명","주소","등록","전화","팩스","업태","업종",":"];
+            if (loc && !locSkip.some(k=>loc.includes(k))) location = loc;
+
+            // 출고일/납기일
+            const outDate = labeled("출고일") || labeled("납기일");
+            if (outDate) { const cv = excelSerialToDate(outDate); if(cv) dueDate = cv; }
+
+            // 출고방식
+            const deliv = labeled("출고방식");
+            if (deliv) {
+              const d = deliv.replace(/\s/g,"");
+              if (d.includes("예림")||d.includes("배송")) deliveryType = "예림배송";
+              else if (d.includes("용차")) deliveryType = "용차출고";
+              else if (d.includes("직접")||d.includes("수령")) deliveryType = "직접출고";
+            }
+
+            // 브랜드명 셀 찾기
+            if (flat.some(c=>c==="브랜드명")) {
+              // 같은 행 바로 옆 값
+              const bi = flat.findIndex(c=>c==="브랜드명");
+              const bv = flat.slice(bi+1).find(c=>c&&c!==":");
+              if (bv && detectBrand(bv)) brandName = bv;
+            }
+
+            // 색상 데이터 헤더행 찾기 — "수량" "금액" 같이 있는 행
+            if (flat.some(c=>c.replace(/\s/g,"").includes("수량")) &&
+                flat.some(c=>c.replace(/\s/g,"").includes("금액")) &&
+                flat.some(c=>c.replace(/\s/g,"").includes("단가"))) {
+              headerRowIdx = ri;
+            }
+          }
+
+          if (!location) location = "미정";
+
+          // 색상 데이터 파싱
+          const items = [];
+          const dataRows = headerRowIdx>=0 ? rows.slice(headerRowIdx+1) : rows.slice(14);
+          for (const row of dataRows) {
+            const flat = row.map(c => String(c??"").trim());
+            // B열(인덱스1) = 색상명
+            const colorVal = flat[1] || flat[0] || "";
+            if (!colorVal || SKIP_KEYWORDS.some(k=>colorVal.includes(k)) || colorVal==="0") continue;
+            if (!/[가-힣a-zA-Z]/.test(colorVal)) continue; // 숫자만이면 스킵
+
+            // 숫자 추출: 수량(소수가능, <1000), 단가(>=1000)
+            const nums = flat
+              .filter(c => c && !isNaN(Number(c.replace(/,/g,""))) && Number(c.replace(/,/g,""))>0)
+              .map(c => parseFloat(c.replace(/,/g,"")));
+            if (nums.length < 2) continue;
+            const qty   = String(nums.find(n=>n<1000) ?? nums[0]);
+            const price = String(nums.find(n=>n>=1000) ?? nums[1]);
+            if (!qty || !price) continue;
+
+            items.push({ color:colorVal, qty, unitPrice:price });
+          }
+
+          resolve({ company, memo:location, dueDate, doorType:brandName, status:"received",
+            deliveryType, items: items.length>0 ? items : [{...EMPTY_ITEM}] });
+          return;
+        }
+
+        // ── 표준 견적서 파싱 (기존 로직) ──
         let company = "", location = "", dueDate = fileDate, deliveryType = "직접출고";
         for (const row of rows) {
           const flat = row.map(c => String(c??"").trim());
