@@ -161,7 +161,7 @@ function parseQuoteFile(file) {
         }
 
         // ── 표준 견적서 파싱 (기존 로직) ──
-        let company = "", location = "", dueDate = fileDate, deliveryType = "직접출고";
+        company = ""; location = ""; dueDate = fileDate; deliveryType = "직접출고";
         for (const row of rows) {
           const flat = row.map(c => String(c??"").trim());
           const labeled = (kw) => {
