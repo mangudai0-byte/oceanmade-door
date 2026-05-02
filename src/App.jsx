@@ -490,6 +490,10 @@ export default function App() {
               onClick={()=>setView(v=>v==="ranking"?"list":"ranking")}>
               🏆
             </button>
+            <button className="btn btn-slate" style={{padding:"7px 10px",fontSize:12}}
+              onClick={()=>setView(v=>v==="dashboard"?"list":"dashboard")}>
+              📊
+            </button>
             <div
               onClick={()=>!loading&&fileInputRef.current?.click()}
               onDrop={onDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
@@ -556,6 +560,8 @@ export default function App() {
           ? <KanbanPanel orders={orders} onEdit={openEdit} onDelete={deleteOrder} onStatus={changeStatus}/>
           : view==="ranking"
           ? <RankingPanel orders={orders}/>
+          : view==="dashboard"
+          ? <DashboardPanel orders={orders}/>
           : <ListPanel orders={filtered} all={orders}
               filter={filter} setFilter={setFilter}
               search={search} setSearch={setSearch}
@@ -753,6 +759,225 @@ function KanbanPanel({orders,onEdit,onDelete,onStatus}) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ══ 대시보드 패널 ══ */
+function DashboardPanel({orders}) {
+  const now = new Date();
+
+  // 최근 3개월 계산
+  const months = [0,1,2].map(i => {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  }).reverse();
+
+  const getMonthOrders = (m) => orders.filter(o => o.dueDate?.startsWith(m));
+  const thisM = months[2];
+  const thisOrders = getMonthOrders(thisM);
+  const lastM = months[1];
+  const lastOrders = getMonthOrders(lastM);
+
+  // 이달 집계
+  const thisAmt = thisOrders.reduce((s,o)=>s+totalAmt(o.items||[]),0);
+  const thisQty = thisOrders.reduce((s,o)=>s+totalQty(o.items||[]),0);
+  const lastAmt = lastOrders.reduce((s,o)=>s+totalAmt(o.items||[]),0);
+  const lastQty = lastOrders.reduce((s,o)=>s+totalQty(o.items||[]),0);
+  const amtGrowth = lastAmt>0 ? ((thisAmt-lastAmt)/lastAmt*100).toFixed(1) : null;
+  const qtyGrowth = lastQty>0 ? ((thisQty-lastQty)/lastQty*100).toFixed(1) : null;
+
+  // 월별 추이 (3개월)
+  const monthlyData = months.map(m => ({
+    m: m.slice(5)+"월",
+    amt: getMonthOrders(m).reduce((s,o)=>s+totalAmt(o.items||[]),0),
+    qty: getMonthOrders(m).reduce((s,o)=>s+totalQty(o.items||[]),0),
+  }));
+  const maxAmt = Math.max(...monthlyData.map(d=>d.amt), 1);
+  const maxQty = Math.max(...monthlyData.map(d=>d.qty), 1);
+
+  // 브랜드별 비중 (3개월 전체)
+  const allOrders = orders.filter(o => months.some(m=>o.dueDate?.startsWith(m)));
+  const brandMap = {};
+  allOrders.forEach(o => {
+    const b = o.doorType||"기타";
+    if (!brandMap[b]) brandMap[b] = {amt:0,qty:0};
+    brandMap[b].amt += totalAmt(o.items||[]);
+    brandMap[b].qty += totalQty(o.items||[]);
+  });
+  const totalBrandAmt = Object.values(brandMap).reduce((s,v)=>s+v.amt,0);
+  const brandColors = {"예림":"#3B82F6","한솔":"#A78BFA","LX":"#34D399"};
+
+  // 색상별 판매
+  const colorMap = {};
+  allOrders.forEach(o => (o.items||[]).forEach(i => {
+    if (!i.color) return;
+    if (!colorMap[i.color]) colorMap[i.color] = {qty:0,amt:0};
+    colorMap[i.color].qty += parseFloat(i.qty)||0;
+    colorMap[i.color].amt += (parseFloat(i.qty)||0)*(parseFloat(i.unitPrice)||0);
+  }));
+  const topColors = Object.entries(colorMap).sort((a,b)=>b[1].qty-a[1].qty).slice(0,6);
+  const maxColorQty = Math.max(...topColors.map(([,v])=>v.qty),1);
+
+  // 출고방식별
+  const delivMap = {"직접출고":0,"용차출고":0,"예림배송":0};
+  allOrders.forEach(o => { const d=o.deliveryType||"직접출고"; if(delivMap[d]!==undefined) delivMap[d]++; });
+  const totalDeliv = Object.values(delivMap).reduce((s,v)=>s+v,0)||1;
+  const delivColors = {"직접출고":"#F59E0B","용차출고":"#A78BFA","예림배송":"#34D399"};
+
+  // 거래처 순위 (3개월)
+  const coMap = {};
+  allOrders.forEach(o => {
+    if (!o.company) return;
+    if (!coMap[o.company]) coMap[o.company] = {amt:0,qty:0};
+    coMap[o.company].amt += totalAmt(o.items||[]);
+    coMap[o.company].qty += totalQty(o.items||[]);
+  });
+  const topCo = Object.entries(coMap).sort((a,b)=>b[1].amt-a[1].amt).slice(0,5);
+  const maxCoAmt = Math.max(...topCo.map(([,v])=>v.amt),1);
+
+  const Card = ({children, style={}}) => (
+    <div className="card" style={{padding:"14px 16px",...style}}>{children}</div>
+  );
+  const SectionTitle = ({children}) => (
+    <div style={{fontSize:11,color:"#475569",fontWeight:700,marginBottom:10,letterSpacing:.5}}>{children}</div>
+  );
+  const Growth = ({val}) => val===null ? null : (
+    <span style={{fontSize:11,color:val>=0?"#34D399":"#f87171",marginLeft:6}}>
+      {val>=0?"▲":"▼"}{Math.abs(val)}%
+    </span>
+  );
+
+  return (
+    <div style={{maxWidth:640,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:2,color:"#fff"}}>
+          📊 판매 대시보드
+        </div>
+        <div style={{fontSize:11,color:"#475569"}}>최근 3개월 기준</div>
+      </div>
+
+      {/* ── 이달 핵심 KPI ── */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        <Card>
+          <SectionTitle>이달 총 매출</SectionTitle>
+          <div style={{fontSize:22,fontWeight:900,color:"#34D399"}}>{thisAmt.toLocaleString()}원</div>
+          <div style={{fontSize:11,color:"#475569",marginTop:4}}>
+            지난달 {lastAmt.toLocaleString()}원 <Growth val={amtGrowth}/>
+          </div>
+        </Card>
+        <Card>
+          <SectionTitle>이달 총 장수</SectionTitle>
+          <div style={{fontSize:22,fontWeight:900,color:"#60A5FA"}}>{fmtQty(thisQty)}장</div>
+          <div style={{fontSize:11,color:"#475569",marginTop:4}}>
+            지난달 {fmtQty(lastQty)}장 <Growth val={qtyGrowth}/>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── 월별 매출 추이 ── */}
+      <Card style={{marginBottom:14}}>
+        <SectionTitle>📈 월별 매출 추이</SectionTitle>
+        <div style={{display:"flex",gap:10,alignItems:"flex-end",height:100}}>
+          {monthlyData.map((d,i)=>(
+            <div key={d.m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <div style={{fontSize:10,color:"#34D399",fontWeight:700}}>{d.amt>0?Math.round(d.amt/10000)+"만":"-"}</div>
+              <div style={{width:"100%",display:"flex",gap:3,alignItems:"flex-end",height:70}}>
+                <div style={{flex:1,background:"#34D399",borderRadius:"4px 4px 0 0",height:`${Math.max((d.amt/maxAmt)*100,2)}%`,transition:"height .8s",opacity:i===2?1:.6}}/>
+                <div style={{flex:1,background:"#60A5FA",borderRadius:"4px 4px 0 0",height:`${Math.max((d.qty/maxQty)*100,2)}%`,transition:"height .8s",opacity:i===2?1:.6}}/>
+              </div>
+              <div style={{fontSize:11,color:i===2?"#E2E8F0":"#475569",fontWeight:i===2?700:400}}>{d.m}</div>
+            </div>
+          ))}
+          <div style={{fontSize:10,color:"#475569",display:"flex",flexDirection:"column",gap:4,paddingBottom:20}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#34D399",borderRadius:2,display:"inline-block"}}/>매출</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#60A5FA",borderRadius:2,display:"inline-block"}}/>장수</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── 브랜드별 비중 + 출고방식 ── */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        <Card>
+          <SectionTitle>🚪 브랜드별 비중</SectionTitle>
+          {Object.entries(brandMap).length===0
+            ? <div style={{color:"#1E3A5F",fontSize:12}}>데이터 없음</div>
+            : Object.entries(brandMap).sort((a,b)=>b[1].amt-a[1].amt).map(([b,v])=>(
+              <div key={b} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:12,color:"#E2E8F0",fontWeight:700}}>{b}</span>
+                  <span style={{fontSize:11,color:"#64748B"}}>{totalBrandAmt>0?Math.round(v.amt/totalBrandAmt*100):0}%</span>
+                </div>
+                <div style={{height:6,background:"#1E3A5F",borderRadius:3}}>
+                  <div style={{height:"100%",borderRadius:3,background:brandColors[b]||"#94A3B8",
+                    width:`${totalBrandAmt>0?(v.amt/totalBrandAmt*100).toFixed(1):0}%`,transition:"width .8s"}}/>
+                </div>
+              </div>
+            ))
+          }
+        </Card>
+        <Card>
+          <SectionTitle>🚚 출고방식별</SectionTitle>
+          {Object.entries(delivMap).map(([d,cnt])=>(
+            <div key={d} style={{marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontSize:11,color:"#E2E8F0"}}>{d}</span>
+                <span style={{fontSize:11,color:"#64748B"}}>{cnt}건</span>
+              </div>
+              <div style={{height:6,background:"#1E3A5F",borderRadius:3}}>
+                <div style={{height:"100%",borderRadius:3,background:delivColors[d],
+                  width:`${(cnt/totalDeliv*100).toFixed(1)}%`,transition:"width .8s"}}/>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+
+      {/* ── 색상별 판매 ── */}
+      <Card style={{marginBottom:14}}>
+        <SectionTitle>🎨 색상별 판매 (장수 기준)</SectionTitle>
+        {topColors.length===0
+          ? <div style={{color:"#1E3A5F",fontSize:12}}>데이터 없음</div>
+          : topColors.map(([color,v],i)=>(
+            <div key={color} style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
+              <div style={{fontSize:13,minWidth:20,textAlign:"center",color:"#475569"}}>{i+1}</div>
+              <div style={{flex:"0 0 130px",fontSize:12,color:"#CBD5E1",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{color}</div>
+              <div style={{flex:1,height:8,background:"#1E3A5F",borderRadius:4}}>
+                <div style={{height:"100%",borderRadius:4,
+                  background:`hsl(${200+i*30},70%,55%)`,
+                  width:`${(v.qty/maxColorQty*100).toFixed(1)}%`,transition:"width .8s"}}/>
+              </div>
+              <div style={{fontSize:11,color:"#94A3B8",minWidth:40,textAlign:"right"}}>{fmtQty(v.qty)}장</div>
+            </div>
+          ))
+        }
+      </Card>
+
+      {/* ── 거래처 순위 ── */}
+      <Card>
+        <SectionTitle>🏆 거래처 매출 순위 (3개월)</SectionTitle>
+        {topCo.length===0
+          ? <div style={{color:"#1E3A5F",fontSize:12}}>데이터 없음</div>
+          : topCo.map(([co,v],i)=>(
+            <div key={co} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,alignItems:"center"}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:15}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`}</span>
+                  <span style={{fontSize:13,color:"#F1F5F9",fontWeight:700}}>{co}</span>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:12,color:"#34D399",fontWeight:700}}>{v.amt.toLocaleString()}원</div>
+                  <div style={{fontSize:10,color:"#475569"}}>{fmtQty(v.qty)}장</div>
+                </div>
+              </div>
+              <div style={{height:5,background:"#1E3A5F",borderRadius:3}}>
+                <div style={{height:"100%",borderRadius:3,background:["#FFD700","#C0C0C0","#CD7F32","#3B82F6","#A78BFA"][i],
+                  width:`${(v.amt/maxCoAmt*100).toFixed(1)}%`,transition:"width .8s"}}/>
+              </div>
+            </div>
+          ))
+        }
+      </Card>
     </div>
   );
 }
